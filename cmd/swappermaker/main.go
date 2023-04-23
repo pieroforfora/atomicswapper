@@ -18,6 +18,7 @@ import (
   "crypto/rand"
   "encoding/hex"
   "github.com/pieroforfora/atomicswapper/interfaces"
+  "math"
 
 )
 var db *godb.DB
@@ -216,24 +217,38 @@ func main(){
 }
 
 func getPrice(currencyFrom, currencyTo string, volume float64, markets orderBook)float64{
-  price := getPriceF1(currencyFrom, currencyTo, volume,true,markets)
-  if price == 0 {
-    price = getPriceF1(currencyTo,currencyFrom,volume,false,markets)
-    if price == 0{
-      price = getPriceF2(currencyTo,currencyFrom,volume,markets)
+    if volume <0{
+      t:=currencyFrom
+      currencyFrom=currencyTo
+      currencyTo=t
     }
-  }
-  return price
+    price := getPriceF1(currencyFrom, currencyTo, volume,true,markets)
+    if price == 0 {
+      price = getPriceF1(currencyTo,currencyFrom,volume,false,markets)
+      if price == 0{
+        price = getPriceF2(currencyTo,currencyFrom,volume,markets)
+      }
+    }
+    return roundFloat(price,8)
 }
 func getPriceByVolume(prices  [][]float64, volume float64) float64{
+  realvolume := volume
   for _,p := range prices{
+    reverse :=false
+    if volume <0{
+      realvolume =volume*(-1)/p[0]
+      reverse = true
+    }
     if len(p) ==1{
+      if reverse{ return 1/p[0]}
       return p[0]
     }
-    if len(p) == 2 && volume > p[1]{
+    if len(p) == 2 && realvolume > p[1]{
+      if reverse{ return 1/p[0]}
       return p[0]
     }
-    if len(p)== 3 && volume > p[1] && volume< p[2]{
+    if len(p)== 3 && realvolume > p[1] && realvolume< p[2]{
+      if reverse{ return 1/p[0]}
       return p[0]
     }
   }
@@ -318,7 +333,7 @@ func isOnlineEndpoint(w http.ResponseWriter, r *http.Request){
   for idx,network:=range networks {
     isOnlineOut[i]=interfaces.IsOnlineOut{
       Network:        idx,
-      StatusCode:     string(network.StatusCode),
+      StatusCode:     strconv.Itoa(network.StatusCode),
       StatusMessage:  network.StatusMessage,
     }
     i+=1
@@ -326,25 +341,49 @@ func isOnlineEndpoint(w http.ResponseWriter, r *http.Request){
   interfaces.WriteResult(w,nil,isOnlineOut)
 }
 //TODO still missing to check balances
-func initiateEndpoint(w http.ResponseWriter, r *http.Request){
-  var args interfaces.InitiateSwapIn
-  interfaces.ParseBody(r,&args)
-  amountF64, err := strconv.ParseFloat(args.Amount, 64)
+
+func parseInitiateSwap(args interfaces.InitiateSwapIn)(*string,*string,*float64, *float64, error){
+   amountF64, err := strconv.ParseFloat(args.Amount, 64)
   if err != nil {
     fmt.Printf("failed to decode amount: %v", err)
-    return
+    return nil,nil,nil,nil, errors.New(fmt.Sprintf("falied to decode amount(%v) %v",args.Amount, err))
   }
   pair := strings.Split(strings.ToUpper(args.Market), "-")
   if !checkStatus(pair[0]) || !checkStatus(pair[1]) {
     fmt.Printf("atomicswap  is offline %v:%v - %v:%v",pair[0],networks[pair[0]].StatusCode,pair[1],networks[pair[1]].StatusCode)
-    return
+    return nil,nil,nil,nil, errors.New(fmt.Sprintf("atomic swap is offline %v:%v - %v:%v",pair[0],networks[pair[0]].StatusCode,pair[1],networks[pair[1]].StatusCode))
   }
-  price := getPrice(pair[0],pair[1],amountF64, markets)
-  newSwapResponse,err := http.Get("http://"+networks[pair[0]].Url+"/newswap" )
-  if err!=nil{
-    fmt.Println("errore:",err)
+  priceF64 := getPrice(pair[0],pair[1],amountF64, markets)
+
+  currencyToSwapper := pair[0]
+  currencyToUser := pair[1]
+
+  if amountF64 < 0 {
+    currencyToUser = pair[0]
+    currencyToSwapper = pair[1]
+    amountF64 = amountF64 * -1
+    priceF64 = 1/priceF64
   }
 
+return &currencyToUser, &currencyToSwapper, &priceF64, &amountF64,nil
+}
+
+func initiateEndpoint(w http.ResponseWriter, r *http.Request){
+  var args interfaces.InitiateSwapIn
+  interfaces.ParseBody(r,&args)
+  currencyToUser,currencyToSwapper,priceF64,amountF64,err := parseInitiateSwap(args)
+  if err!=nil{
+    fmt.Println("errore:",err)
+    interfaces.WriteResult(w,err,nil)
+    return
+
+  }
+  newSwapResponse,err := interfaces.Post("http://"+networks[*currencyToSwapper].Url+"/newswap","true")
+  if err!=nil{
+    fmt.Println("errore:",err)
+    interfaces.WriteResult(w,err,nil)
+    return
+  }
   var atomicSwapParams interfaces.AtomicSwapParamsOutput
   interfaces.ParseBodyResponse(newSwapResponse,&atomicSwapParams)
 
@@ -354,17 +393,25 @@ func initiateEndpoint(w http.ResponseWriter, r *http.Request){
   fmt.Println(hex.EncodeToString(swapId))
   fmt.Println("max_len:",atomicSwapParams.MaxSecretLen)
   maxlen,err := strconv.Atoi(atomicSwapParams.MaxSecretLen)
-  panicIfErr(err)
+  if err!=nil{
+    fmt.Println("errore:",err)
+    interfaces.WriteResult(w,err,nil)
+    return
+  }
   mintime,err := strconv.ParseInt(atomicSwapParams.MinLockTimeInitiate, 10, 64)
-  panicIfErr(err)
+  if err!=nil{
+    fmt.Println("errore:",err)
+    interfaces.WriteResult(w,err,nil)
+    return
+  }
   swap := Swap {
     Id:                   hex.EncodeToString(swapId),
     Date:                 time.Now().Unix(),
     StatusCode:           "0",
-    CurrencyToUser:       pair[1],
-    CurrencyToSwapper:    pair[0],
-    AmountToSwapper:      strconv.FormatFloat(amountF64,'f',8,64),
-    AmountToUser:         strconv.FormatFloat(amountF64*price,'f',8,64),
+    CurrencyToUser:       *currencyToUser,
+    CurrencyToSwapper:    *currencyToSwapper,
+    AmountToSwapper:      strconv.FormatFloat(*amountF64,'f',8,64),
+    AmountToUser:         strconv.FormatFloat(*amountF64**priceF64,'f',8,64),
     AddressSwapper:       atomicSwapParams.ReciptAddress,
     AddressUser:          args.Address,
     MaxSecretLen:         maxlen,
@@ -375,14 +422,14 @@ func initiateEndpoint(w http.ResponseWriter, r *http.Request){
 
   //db.Execute(swap.CreateTableSQL())
   fmt.Println(&swap)
-  if price>0{
-    fmt.Printf("you are selling: %v %.8f\n",pair[0], amountF64)
-    fmt.Printf("you are buying: %v %.8f\n",pair[1], amountF64*price)
-    fmt.Printf("price(%v): %.8f per %v\n",pair[1], 1*price, pair[0])
-    fmt.Println("please initiate a contract transaction on: ", pair[0], " netowork")
-    fmt.Printf("use %v as redeem\n", atomicSwapParams.ReciptAddress)
-    fmt.Printf("use a %v lenght secret\n",atomicSwapParams.MaxSecretLen)
-    fmt.Printf("use appropriate fee to have locktime at least %v hours after fully confirmed transaction\n",atomicSwapParams.MinLockTimeInitiate)
+  if *priceF64>0{
+    fmt.Printf("user is selling: %v %.8f\n",*currencyToSwapper, *amountF64)
+    fmt.Printf("user is buying: %v %.8f\n",*currencyToUser, *amountF64**priceF64)
+    fmt.Printf("price(%v): %.8f per %v\n",*currencyToUser, *priceF64, *currencyToSwapper)
+    fmt.Println("user should initiate a contract transaction on: ", *currencyToSwapper, " netowork")
+    fmt.Printf("user should use %v as redeem\n", atomicSwapParams.ReciptAddress)
+    fmt.Printf("user should use a %v lenght secret\n",atomicSwapParams.MaxSecretLen)
+    fmt.Printf("user should use appropriate fee to have locktime at least %v hours after fully confirmed transaction\n",atomicSwapParams.MinLockTimeInitiate)
     interfaces.WriteResult(w,err,interfaces.InitiateSwapOut{
       SwapId:              swap.Id,
       SwapperAddress:      swap.AddressSwapper,
@@ -398,9 +445,8 @@ func initiateEndpoint(w http.ResponseWriter, r *http.Request){
   }else{
     fmt.Println("swap not available")
   }
-
-
 }
+
 func panicIfErr(err error){
   if err!= nil{
     panic(err)
@@ -444,6 +490,7 @@ func auditContract(swap Swap)(*interfaces.AuditContractOutput, error){
   }
   return &audit,nil
 }
+
 func participateEndpoint(w http.ResponseWriter, r *http.Request){
   fmt.Println("PARTICIPATE")
 
@@ -462,7 +509,6 @@ func participateEndpoint(w http.ResponseWriter, r *http.Request){
     fmt.Printf("atomicswap  is offline %v:%v",swap.CurrencyToSwapper,networks[swap.CurrencyToSwapper].StatusCode)
     return
   }
-  
   swap.TxInit = args.ContractTx
   swap.ContractInit = args.Contract
   audit,err := auditContract(swap)
@@ -476,5 +522,10 @@ func participateEndpoint(w http.ResponseWriter, r *http.Request){
   swap.StatusCode = "200"
   err = db.Update(&swap).Do()
   panicIfErr(err)
+}
+
+func roundFloat(val float64, precision uint) float64 {
+    ratio := math.Pow(10, float64(precision))
+    return math.Round(val*ratio) / ratio
 }
 
