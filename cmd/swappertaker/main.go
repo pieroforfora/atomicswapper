@@ -8,15 +8,9 @@ import(
   "fmt"
   "time"
 )
-func main(){
-
-  args := interfaces.InitiateSwapIn{
-    Market:   "KAS-BTC",
-    Amount:   "1000",
-    Address:  "mpraiqEbjyQoS2mjzvCuPu1PYq66fRu9yD",
-  }
+func executeSwap(args interfaces.InitiateSwapIn)(*interfaces.InitiateSwapOut,*interfaces.BuildContractOutput,error){
   response,err := interfaces.Post("http://localhost:7080/initiate",&args)
-  panicIfErr(err)
+  if err != nil{return nil,nil,err}
   fmt.Println(response)
 
   var initiateSwap interfaces.InitiateSwapOut
@@ -31,7 +25,7 @@ func main(){
     SecretLen:  &initiateSwap.MaxSecretLen,
   }
   builtSwap, err := interfaces.Initiate("localhost:8081",params)
-  panicIfErr(err)
+  if err != nil{return nil,nil,err}
   fmt.Println(builtSwap)
   fmt.Printf("Secret:%v\nSecretHash:%v\nContract:%v\nTx:%v\nTxFee:%v",
     builtSwap.Secret,
@@ -42,6 +36,7 @@ func main(){
   )
 
   response,err = interfaces.Post("http://localhost:8081/pushtx",&interfaces.PushTxInput{Tx:builtSwap.Tx})
+  if err != nil{return nil,nil,err}
   fmt.Println(response)
   fmt.Println("SECRET:",builtSwap.Secret)
   done := interfaces.ParticipateIn{
@@ -51,19 +46,11 @@ func main(){
     SecretHash:   builtSwap.SecretHash,
   }
   response, err = interfaces.Post("http://localhost:7080/participate",&done)
+  if err != nil{return nil,nil,err}
+  return &initiateSwap,builtSwap,nil
+}
+func waitParticipateAndRedeem(initiateSwap interfaces.InitiateSwapOut, builtSwap interfaces.BuildContractOutput){
   fmt.Println("waiting for swapper to participate")
-
-
-
-/*
-  initiateSwap := interfaces.InitiateSwapOut{
-    SwapId:     "524eae8a6bc43e9c1f6267819d47e647426d6b55828a36f3aa5051faae5e56",
-  }
-  builtSwap := interfaces.BuildContractOutput{
-    Secret:     "306334fb6d01bdb163fa73897a448355809deb84b19716710e8d3136f6576208",
-    SecretHash: "f484013c6663a5fcfc2207a988be8d1c045773f4f1f2c5804f6eca1b502bf4e8",
-  }
-*/
   for{
     response, err := interfaces.Post("http://localhost:7080/check",&interfaces.SwapStatusIn{
       SwapId: initiateSwap.SwapId,
@@ -105,8 +92,29 @@ func main(){
     }else{
       fmt.Println("status code is not 300: ", swapStatus.StatusCode )
     }
-    time.Sleep(60 * time.Second)
+    time.Sleep(60* time.Second)
   }
+}
+func main(){
+
+  args := interfaces.InitiateSwapIn{
+    Market:   "KAS-BTC",
+    Amount:   "1000",
+    Address:  "mpraiqEbjyQoS2mjzvCuPu1PYq66fRu9yD",
+  }
+  initiateSwap,builtSwap,err := executeSwap(args)
+  panicIfErr(err)
+  waitParticipateAndRedeem(*initiateSwap,*builtSwap)
+
+/*
+  initiateSwap := interfaces.InitiateSwapOut{
+    SwapId:     "524eae8a6bc43e9c1f6267819d47e647426d6b55828a36f3aa5051faae5e56",
+  }
+  builtSwap := interfaces.BuildContractOutput{
+    Secret:     "306334fb6d01bdb163fa73897a448355809deb84b19716710e8d3136f6576208",
+    SecretHash: "f484013c6663a5fcfc2207a988be8d1c045773f4f1f2c5804f6eca1b502bf4e8",
+  }
+*/
 }
 func panicIfErr(err error){
   if err != nil{
