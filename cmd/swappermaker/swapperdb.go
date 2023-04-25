@@ -18,6 +18,10 @@ type Swap struct {
   SecretHash              string    `db:"secret_hash"`
   LastBlock               string    `db:"last_block"`
   MinLockTimeInit         int64     `db:"min_locktime"`
+  LocktimeInit            int64     `db:"locktime_init"`
+  LocktimePart            int64     `db:"locktime_part"`
+  SecretLen               int       `db:"secret_len"`
+  Secret                  string    `db:"secret"`
   ContractInit            string    `db:"contract_init"`
   ContractPart            string    `db:"contract_part"`
   TxIdInit                string    `db:"tx_id_init"`
@@ -53,6 +57,10 @@ func (*Swap) CreateTableSQL() string{
     address_part          TEXT,
     max_secret_len        INTEGER,
     min_locktime          INTEGER,
+    locktime_init         INTEGER,
+    locktime_part         INTEGER,
+    secret_len            INTEGER,
+    secret                TEXT,
     secret_hash           TEXT,
     last_block            TEXT,
     contract_init         TEXT,
@@ -62,7 +70,7 @@ func (*Swap) CreateTableSQL() string{
     tx_id_redeem_user     TEXT,
     tx_id_redeem_swapper  TEXT,
     tx_id_refund_user     TEXT,
-    tx_id_refund_swapper  TEXT
+    tx_id_refund_swapper  TEXT,
     tx_init               TEXT,
     tx_part               TEXT,
     tx_redeem_user        TEXT,
@@ -72,6 +80,7 @@ func (*Swap) CreateTableSQL() string{
   );
   `
 }
+/*
 func GetSwapSQL(id string)string{
   return `SELECT
       id,
@@ -97,7 +106,7 @@ func GetSwapSQL(id string)string{
       tbl_swap
     WHERE id="`+id+`":"`
 }
-/*
+
 func (swap *Swap)Get(id string, db sql.DB) (error){
   row := db.QueryRow(GetSwapSQL(id))
   *swap = Swap{}

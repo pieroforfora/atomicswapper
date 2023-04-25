@@ -18,7 +18,7 @@ import (
   "path/filepath"
   //"io/ioutil"
   "net/http"
-  "encoding/json"
+  //"encoding/json"
 
   "github.com/kaspanet/kaspad/cmd/kaspawallet/daemon/client"
   "github.com/kaspanet/kaspad/cmd/kaspawallet/daemon/pb"
@@ -1060,7 +1060,7 @@ func (cmd *contractArgsCmd) runDaemonCommand(mnemonics []string, daemonClient pb
     return nil,err
   }
   secret := hex.EncodeToString(cmd.secret)
-  fmt.Println("SECRET: ", secret) 
+  fmt.Println("SECRET: ", secret)
   return any(interfaces.BuildContractOutput{
     Secret:     secret,
     SecretHash: hex.EncodeToString(cmd.secretHash),
@@ -1622,11 +1622,13 @@ func restApiRequestsHandlers() {
 // Check if BTC / KAS network are available
 func isOnlineEndpoint(w http.ResponseWriter, r *http.Request) {
   w.Header().Set("Content-Type", "application/json")
+  out := "false"
   if isOnline() {
-    json.NewEncoder(w).Encode(true)
-  } else {
-    json.NewEncoder(w).Encode(false)
+    out = "true"
   }
+  interfaces.WriteResult(w,nil,interfaces.IsOnlineOutput{
+    IsOnline: out,
+  })
 }
 
 // Check if BTC / KAS network are available
@@ -1654,33 +1656,40 @@ func pushTxEndpoint(w http.ResponseWriter, r *http.Request) {
   var args interfaces.PushTxInput
   interfaces.ParseBody(r,&args)
   txId,err := pushTx(args)
-  if err != nil {
-    fmt.Println("error:",err)
-  }
   interfaces.WriteResult(w,err,interfaces.PushTxOutput{
-  TxId: fmt.Sprintf("%v",getNil(txId)),
+    TxId: fmt.Sprintf("%v",getNil(txId)),
   })
 }
 func mainEndPoint(cmd daemonCommand,err error, w http.ResponseWriter, r *http.Request){
-  if err!= nil {
+  if err!=nil {
+    fmt.Println(err)
     interfaces.WriteResult(w,err,nil)
+    return
   }
   daemonClient, tearDown, err := client.Connect(*connectWalletFlag)
-  if err != nil {fmt.Println(err)}
+  if err!=nil {
+    fmt.Println(err)
+    interfaces.WriteResult(w,errors.New("error"),nil)
+    return
+  }
   defer tearDown()
   ctx, cancel := context.WithTimeout(context.Background(), (10 * time.Minute))
   defer cancel()
 
   keysFile, err := keys.ReadKeysFile(chainParams, defaultKeysFile(chainParams))
-  if err != nil {log.Fatal(err)}
-
+  if err!=nil {
+    fmt.Println(err)
+    interfaces.WriteResult(w,errors.New("error"),nil)
+    return
+  }
   mnemonics, err := keysFile.DecryptMnemonics(daemonPassword)
-  if err != nil {log.Fatal(err)}
+  if err!=nil {
+    fmt.Println(err)
+    interfaces.WriteResult(w,errors.New("error"),nil)
+    return
+  }
 
   out, err := cmd.runDaemonCommand(mnemonics,daemonClient,ctx,keysFile)
-  if nil!= err {
-    fmt.Println(err)
-  }
   interfaces.WriteResult(w,err,out)
 }
 // Initiate swap contract
@@ -1710,6 +1719,11 @@ func extractSecretEndpoint(w http.ResponseWriter,r *http.Request){
   var args interfaces.ExtractSecretInput
   interfaces.ParseBody(r,&args)
   input,err := parseExtractSecretArgs(args)
+  if err!=nil {
+    fmt.Println(err)
+    interfaces.WriteResult(w,err,nil)
+    return
+  }
   data,err := extractSecret(*input)
   interfaces.WriteResult(w,err,interfaces.ExtractSecretOutput{Secret:fmt.Sprintf("%x",data)})
 }
@@ -1717,12 +1731,7 @@ func extractSecretEndpoint(w http.ResponseWriter,r *http.Request){
 func buildSwapContractEndpoint(w http.ResponseWriter, r *http.Request) {
   var  args interfaces.BuildContractInput
   interfaces.ParseBody(r,&args)
-
   buildArgs,err := parseBuildArgs(args)
-  if err!=nil {
-    fmt.Println(err)
-  }
-  fmt.Println("Initiate contract requested: ", buildArgs.them, buildArgs.amount)
   mainEndPoint(buildArgs,err,w,r)
 }
 
@@ -1739,8 +1748,8 @@ func walletBalanceEndpoint(w http.ResponseWriter, r *http.Request){
   mainEndPoint(walletBalanceCmd{},nil,w,r)
 }
 func checkRedeemEndpoint(w http.ResponseWriter, r *http.Request) {
-    var args interfaces.CheckRedeemInput
-    interfaces.ParseBody(r,&args)
-    input:=checkRedeemCmd{LastBlock:args.LastBlock,TxId:args.TxId,SecretHash:args.SecretHash}
-    mainEndPoint(input,nil,w,r)
+  var args interfaces.CheckRedeemInput
+  interfaces.ParseBody(r,&args)
+  input:=checkRedeemCmd{LastBlock:args.LastBlock,TxId:args.TxId,SecretHash:args.SecretHash}
+  mainEndPoint(input,nil,w,r)
 }

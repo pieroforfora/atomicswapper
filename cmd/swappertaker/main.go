@@ -9,7 +9,7 @@ import(
   "time"
 )
 func main(){
-/*
+
   args := interfaces.InitiateSwapIn{
     Market:   "KAS-BTC",
     Amount:   "1000",
@@ -25,15 +25,13 @@ func main(){
   fmt.Println(initiateSwap)
   fmt.Println("------------")
   params := interfaces.BuildContractInput{
-    Them:   initiateSwap.SwapperAddress,
-    Amount: initiateSwap.AmountToSwapper,
-    LockTime: &initiateSwap.MinLockTimeInitiate,
-    SecretLen: &initiateSwap.MaxSecretLen,
+    Them:       initiateSwap.SwapperAddress,
+    Amount:     initiateSwap.AmountToSwapper,
+    LockTime:   &initiateSwap.MinLockTimeInitiate,
+    SecretLen:  &initiateSwap.MaxSecretLen,
   }
-  response,err = interfaces.Post("http://localhost:8081/initiate",&params)
+  builtSwap, err := interfaces.Initiate("localhost:8081",params)
   panicIfErr(err)
-  var builtSwap interfaces.BuildContractOutput
-  interfaces.ParseBodyResponse(response,&builtSwap)
   fmt.Println(builtSwap)
   fmt.Printf("Secret:%v\nSecretHash:%v\nContract:%v\nTx:%v\nTxFee:%v",
     builtSwap.Secret,
@@ -54,9 +52,10 @@ func main(){
   }
   response, err = interfaces.Post("http://localhost:7080/participate",&done)
   fmt.Println("waiting for swapper to participate")
-*/
 
 
+
+/*
   initiateSwap := interfaces.InitiateSwapOut{
     SwapId:     "524eae8a6bc43e9c1f6267819d47e647426d6b55828a36f3aa5051faae5e56",
   }
@@ -64,7 +63,7 @@ func main(){
     Secret:     "306334fb6d01bdb163fa73897a448355809deb84b19716710e8d3136f6576208",
     SecretHash: "f484013c6663a5fcfc2207a988be8d1c045773f4f1f2c5804f6eca1b502bf4e8",
   }
-
+*/
   for{
     response, err := interfaces.Post("http://localhost:7080/check",&interfaces.SwapStatusIn{
       SwapId: initiateSwap.SwapId,
@@ -88,13 +87,14 @@ func main(){
           continue
         }
         var redeemOut interfaces.SpendContractOutput
-        err= interfaces.ParseBodyResponse(response,redeemOut)
+        err= interfaces.ParseBodyResponse(response,&redeemOut)
         if err != nil {
           fmt.Println("ErrorParsing redeem:",err)
           continue
         }
-        fmt.Println(response)
+        fmt.Println(response,redeemOut)
         fmt.Println("pushTx: ",redeemOut.Tx)
+        fmt.Println("pushTx: ",redeemOut.TxId)
         response,err = interfaces.Post("http://localhost:8080/pushtx",&interfaces.PushTxInput{Tx:redeemOut.Tx})
         fmt.Println("response:",response)
         fmt.Println("error:",err)

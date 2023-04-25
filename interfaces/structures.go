@@ -25,7 +25,7 @@ type BuildContractOutput struct {
   SecretHash          string  `json:"SecretHash"`
   Contract            string  `json:"Contract"`
   ContractAddress     string  `json:"ContractAddress"`
-  TxID                string  `json:"ContractTransactionID"`
+  TxId                string  `json:"ContractTransactionID"`
   Tx                  string  `json:"ContractTransaction"`
   TxFee               string  `json:"TransactionFee"`
   LastBlock           string  `json:"LastBlock"`
@@ -41,7 +41,7 @@ type BuildContractInput struct {
 }
 type SpendContractOutput struct {
   Tx    string `json:"SpendTransaction"`
-  TxID  string `json:"SpendTransactionID"`
+  TxId  string `json:"SpendTransactionID"`
   TxFee string `json:"TransactionFee"`
 }
 type SpendContractInput struct {
@@ -98,10 +98,12 @@ type ErrOutput struct {
 type CheckRedeemInput struct {
  /* Address     string  `json:"Address"`
   SecretHash  string  `json:"SecretHash"`*/
-  LastBlock string
-  TxId  string
-  SecretHash string
+  LastBlock   string
+  TxId        string
+  SecretHash  string
 }
 type CheckRedeemOutput struct {
- Secret string `json:"Secret"`
+  Secret  string  `json:"Secret"`
+  Tx      string  `json:"Tx"`
+  TxId    string  `json:"TxId"`
 }

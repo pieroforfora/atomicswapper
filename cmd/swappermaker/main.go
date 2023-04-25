@@ -12,16 +12,18 @@ import (
   "log"
   "strconv"
   //"os"
-//  "database/sql"
+  //"database/sql"
   "github.com/samonzeweb/godb"
   "github.com/samonzeweb/godb/adapters/sqlite"
   "crypto/rand"
   "encoding/hex"
   "github.com/pieroforfora/atomicswapper/interfaces"
   "math"
+  "os"
 
 )
 var db *godb.DB
+/*
 var book =  []byte(strings.ToUpper(`{
     "BTC":{
       "KAS":{
@@ -39,7 +41,7 @@ var book =  []byte(strings.ToUpper(`{
       }
     }
 }`))
-
+*/
 var limitVolumesPerTrade = []byte(`{
   BTC:  [0.00001000,10],
   KAS:  [1,1000000],
@@ -63,23 +65,21 @@ var walletTotalBalance = []byte(`{
 }`)
 var networksJson = []byte(`{
   "BTC":{ 
-    "url":"localhost:8080",
-    "StatusCode":0,
-    "statusMessage":""
+    "url":"localhost:8080"
   },
   "KAS":{ 
-    "url":"localhost:8081",
-    "StatusCode":0,
-    "statusMessage":""
+    "url":"localhost:8081"
   }
 }`)
 
 
 type NetworkStatus struct {
   Url           string  `json:"url"`
-  StatusCode    int     `json:"StatusCode"`
-  StatusMessage string  `json:"statusMessage"`
+  Mediantime    int64
+  StatusCode    int
+  StatusMessage string
 }
+
 var networks map[string]NetworkStatus
 func checkStatus(n string) bool{
   if networks[n].StatusCode != 200{
@@ -91,10 +91,15 @@ func checkStatus(n string) bool{
 
 func updateMarkets(){
   for{
-    fmt.Println("updateMarkets")
-    err := json.Unmarshal(book,&markets)
+    book, err := os.ReadFile("book.json")
+    if err != nil {
+      fmt.Println("Errors while reading book.json file:", err)
+      continue
+    }
+    err = json.Unmarshal(book,&markets)
     if err != nil{
-      fmt.Println(err)
+      fmt.Println("Error while parsing book.json:",err)
+      continue
     }
     time.Sleep(5 * time.Second)
   }
@@ -104,30 +109,29 @@ func updateNetworks(){
     //var networks  map[string]NetworkStatus
     err:= json.Unmarshal(networksJson,&networks)
     panicIfErr(err)
-    fmt.Println(networks)
     for name, net := range networks{
       status := NetworkStatus{Url:net.Url}
-      isOnlineResponse,err := http.Get("http://"+net.Url+"/is-online")
+      isOnline,err := interfaces.IsOnline(net.Url)
       if err!= nil{
         fmt.Println(err)
-        status.StatusCode=0
-        status.StatusMessage="no reply from server"
+        status.StatusCode = 0
+        status.StatusMessage = "no reply from server"
+        continue
       }else{
-        var isOnline bool
-        interfaces.ParseBodyResponse(isOnlineResponse,&isOnline)
-        if isOnline==true{
-          status.StatusCode=200
-          status.StatusMessage="ok"
+        if isOnline.IsOnline == "true"{
+          status.StatusCode = 200
+          status.StatusMessage = "ok"
         }else{
-          status.StatusCode=201
-          status.StatusMessage="Offline"
+          status.StatusCode = 201
+          status.StatusMessage = "Offline"
         }
       }
       networks[name]=status
     }
-    fmt.Println("updateNetworks")
     for idx,network := range networks{
-      fmt.Println(idx,network.StatusCode)
+      if network.StatusCode!=200{
+        fmt.Println("Error atomic swap offline for network:", idx,network.StatusCode)
+      }
     }
     time.Sleep(5 * time.Second)
   }
@@ -142,36 +146,42 @@ func checkSwapInitiate(){
     for _, swap := range swaps {
       audit, err := auditContract(swap)
       if err != nil {
-        panic(err)
+        fmt.Println("Error Auditing Contract:",err)
+        continue
       }
       if audit.IsSpendable == "true" {
         fmt.Println(swap.Id)
         initiateLockTime,err := strconv.ParseInt(audit.LockTime,10,64)
         panicIfErr(err)
         partLockTime := strconv.FormatInt(int64(time.Now().Unix()+(initiateLockTime-time.Now().Unix())/2),10)
-        response, err := interfaces.Post("http://"+networks[swap.CurrencyToUser].Url+"/participate",&interfaces.BuildContractInput{
+        part, err := interfaces.Participate(networks[swap.CurrencyToUser].Url,interfaces.BuildContractInput{
           Them:         swap.AddressUser,
           Amount:       swap.AmountToUser,
           SecretHash:   &audit.SecretHash,
           LockTime:     &partLockTime,
         })
-        panicIfErr(err)
-        var part interfaces.BuildContractOutput
-        interfaces.ParseBodyResponse(response,&part)
-        response,err = interfaces.Post("http://" + networks[swap.CurrencyToUser].Url + "/pushtx",&interfaces.PushTxInput{Tx:part.Tx})
-        panicIfErr(err)
+        if err != nil {
+          fmt.Println("Error Participating:",err)
+          continue
+        }
+        pushTx,err := interfaces.PushTx(networks[swap.CurrencyToUser].Url,interfaces.PushTxInput{Tx:part.Tx})
+        if err != nil {
+          fmt.Println(err)
+          continue
+        }
         fmt.Println("participated")
         fmt.Println("TX:", part.Tx)
-        fmt.Println("TXId:", part.TxID)
+        fmt.Println("TXId:", pushTx.TxId)
         fmt.Println("Contract:", part.Contract)
         fmt.Println("LastBlock:", part.LastBlock)
         swap.TxPart = part.Tx
-        swap.TxIdPart = part.TxID
+        swap.TxIdPart = part.TxId
         swap.ContractPart = part.Contract
         swap.AddressContractPart = part.ContractAddress
         swap.LastBlock = part.LastBlock
         swap.StatusCode = "300"
-        db.Update(&swap).Do()
+        err = db.Update(&swap).Do()
+        panicIfErr(err)
       }
     }
 
@@ -185,19 +195,82 @@ func checkSwapRedeem(){
     err := db.Select(&swaps).Where("status_code = ?","300").Do()
     panicIfErr(err)
     for _, swap := range swaps {
-      fmt.Println("SWAP:",swap.Id,len(swaps))
-      resp,err := interfaces.Post("http://"+networks[swap.CurrencyToUser].Url+"/check",&interfaces.CheckRedeemInput{
-        LastBlock:  swap.LastBlock,
-        TxId:       swap.TxIdPart,
-        SecretHash: swap.SecretHash,
-      })
-      fmt.Println(err)
-      fmt.Println(resp)
+      var checkOut *interfaces.CheckRedeemOutput
+      if swap.TxRedeemUser == ""{
+        checkOut,err = interfaces.SearchRedeem(networks[swap.CurrencyToUser].Url, interfaces.CheckRedeemInput{
+          LastBlock:  swap.LastBlock,
+          TxId:       swap.TxIdPart,
+          SecretHash: swap.SecretHash,
+        })
+        if err != nil {
+          fmt.Println(err)
+          continue
+        }
+        if checkOut == nil{
+          continue
+        }
+        fmt.Println("checkOut:",checkOut)
+        swap.TxRedeemUser   = checkOut.Tx
+        swap.TxIdRedeemUser = checkOut.TxId
+        swap.Secret         = checkOut.Secret
+        err = db.Update(&swap).Do()
+      }
+      redeemOut,err := interfaces.Redeem(networks[swap.CurrencyToSwapper].Url, interfaces.SpendContractInput{
+          Secret:   swap.Secret,
+          Contract: swap.ContractInit,
+          Tx:       swap.TxInit,
+        })
+        if err != nil {
+          fmt.Println(err)
+          continue
+        }
+        fmt.Println("pushTx: ",redeemOut.Tx)
+        pushTx,err := interfaces.PushTx(networks[swap.CurrencyToSwapper].Url, interfaces.PushTxInput{Tx:redeemOut.Tx})
+        if err!= nil{
+          fmt.Println(err)
+          continue
+        }
+        swap.TxRedeemSwapper = redeemOut.Tx
+        swap.TxIdRedeemSwapper = pushTx.TxId
+        swap.StatusCode = "500"
+        err = db.Update(&swap).Do()
+        panicIfErr(err)
+        break
+
     }
     time.Sleep(5 * time.Second)
   }
 }
 
+func checkSwapTimedOut(){
+  for{
+    swaps := make([]Swap, 0, 0)
+    err := db.Select(&swaps).Where("status_code >= 300").Where("status_code < 500").Do()
+    panicIfErr(err)
+    for _, swap := range swaps {
+      if swap.TxRedeemSwapper ==""{
+        if swap.LocktimePart < networks[swap.CurrencyToUser].Mediantime{
+          refundOut, err := interfaces.Refund(networks[swap.CurrencyToUser].Url, interfaces.SpendContractInput{
+            Tx:         swap.TxPart,
+            Contract:   swap.ContractPart,
+          })
+          if err != nil{
+            fmt.Println(err)
+            continue
+          }
+          pushedTx,err := interfaces.PushTx(networks[swap.CurrencyToUser].Url, interfaces.PushTxInput{Tx:refundOut.Tx})
+          if err != nil{
+            fmt.Println(err)
+            continue
+          }
+          swap.TxRedeemSwapper = refundOut.Tx
+          swap.TxIdRedeemSwapper = pushedTx.TxId
+        }
+      }
+    }
+    time.Sleep(5 * time.Second)
+  }
+}
 func main(){
   ddb, err := godb.Open(sqlite.Adapter, "./swap.db")
   panicIfErr(err)
@@ -210,7 +283,7 @@ func main(){
   go checkSwapInitiate()
   //TODO
   go checkSwapRedeem()
-  //TODO go checkSwapTimedOut()
+  go checkSwapTimedOut()
   restApiHandlers()
   fmt.Println("Server is up and running...")
   log.Fatal(http.ListenAndServe(":7080", nil))
@@ -378,20 +451,16 @@ func initiateEndpoint(w http.ResponseWriter, r *http.Request){
     return
 
   }
-  newSwapResponse,err := interfaces.Post("http://"+networks[*currencyToSwapper].Url+"/newswap","true")
+  atomicSwapParams,err := interfaces.SwapParams(networks[*currencyToSwapper].Url,true)
   if err!=nil{
-    fmt.Println("errore:",err)
+    fmt.Println(err)
     interfaces.WriteResult(w,err,nil)
     return
   }
-  var atomicSwapParams interfaces.AtomicSwapParamsOutput
-  interfaces.ParseBodyResponse(newSwapResponse,&atomicSwapParams)
 
   swapId :=make([]byte,31)
   _, err = rand.Read(swapId[:])
   panicIfErr(err)
-  fmt.Println(hex.EncodeToString(swapId))
-  fmt.Println("max_len:",atomicSwapParams.MaxSecretLen)
   maxlen,err := strconv.Atoi(atomicSwapParams.MaxSecretLen)
   if err!=nil{
     fmt.Println("errore:",err)
@@ -421,8 +490,8 @@ func initiateEndpoint(w http.ResponseWriter, r *http.Request){
   panicIfErr(err)
 
   //db.Execute(swap.CreateTableSQL())
-  fmt.Println(&swap)
   if *priceF64>0{
+    fmt.Printf("New Swap:\nId: %v",swap.Id)
     fmt.Printf("user is selling: %v %.8f\n",*currencyToSwapper, *amountF64)
     fmt.Printf("user is buying: %v %.8f\n",*currencyToUser, *amountF64**priceF64)
     fmt.Printf("price(%v): %.8f per %v\n",*currencyToUser, *priceF64, *currencyToSwapper)

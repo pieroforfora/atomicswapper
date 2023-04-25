@@ -39,7 +39,7 @@ func WriteResult(w http.ResponseWriter, err error, result any){
   }
 }
 
-func Post[T *CheckRedeemInput| *InitiateSwapIn | *BuildContractInput | *ParticipateIn | *SwapStatusIn | *AuditContractInput | *PushTxInput | *SpendContractInput | string ](url string,args T)(*http.Response, error){
+func Post[T *CheckRedeemInput| *InitiateSwapIn | *BuildContractInput | *ParticipateIn | *SwapStatusIn | *AuditContractInput | *PushTxInput | *SpendContractInput | *string | *bool ](url string,args T)(*http.Response, error){
   fmt.Println("URL:",url)
   argsByte,err := json.Marshal(args)
   if err != nil{return nil,err}

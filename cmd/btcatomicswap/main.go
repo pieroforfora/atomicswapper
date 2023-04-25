@@ -966,7 +966,7 @@ func spendContract(c *rpc.Client, args *spendArgsCmd)(*builtSpend,error) {
   }
 
 	spendTx := wire.NewMsgTx(txVersion)
-	spendTx.LockTime = uint32(pushes.LockTime)
+	//spendTx.LockTime = uint32(pushes.LockTime)
 	spendTx.AddTxOut(wire.NewTxOut(0, outScript)) // amount set below
   spendSize := 0
   if isRedeem {
@@ -1193,7 +1193,7 @@ func (cmd *contractArgsCmd) runDaemonCommand(c *rpc.Client) (any,error) {
     TxFee:            b.contractFee.String(),
     Contract:         hex.EncodeToString(b.contract),
     Tx:               hex.EncodeToString(contractbuf.Bytes()),
-    TxID:             b.contractTxHash.String(),
+    TxId:             b.contractTxHash.String(),
     ContractAddress:  b.contractP2SH.String(),
     LastBlock:        b.lastBlock,
   }),nil
@@ -1550,15 +1550,17 @@ func restApiRequestsHandlers() {
   http.HandleFunc("/pushtx",pushTxEndpoint)
   http.HandleFunc("/walletbalance",walletBalanceEndpoint)
   http.HandleFunc("/newswap",atomicSwapParamsEndpoint)
-  http.HandleFunc("/check",checkRedeemEndpoint)
+  http.HandleFunc("/searchredeem",checkRedeemEndpoint)
 }
 func isOnlineEndpoint(w http.ResponseWriter, r *http.Request) {
-  w.Header().Set("content-type", "application/json")
+  w.Header().Set("Content-Type", "application/json")
+  out := "false"
   if isOnline() {
-    json.NewEncoder(w).Encode(true)
-  } else {
-    json.NewEncoder(w).Encode(false)
+    out = "true"
   }
+  interfaces.WriteResult(w,nil,interfaces.IsOnlineOutput{
+    IsOnline: out,
+  })
 }
 
 // check if btc / kas network are available
@@ -1579,8 +1581,9 @@ func mainEndpoint(cmd daemonCommand,err error, w http.ResponseWriter, r *http.Re
   out, err := cmd.runDaemonCommand(client)
   if nil!= err {
     fmt.Println(err)
+    interfaces.WriteResult(w,err,nil)
   }
-  interfaces.WriteResult(w,err,out)
+  interfaces.WriteResult(w,nil,out)
 
 }
 
