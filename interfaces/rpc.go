@@ -27,7 +27,7 @@ func Initiate(url string, input BuildContractInput)(*BuildContractOutput, error)
 func Participate(url string, input BuildContractInput)(*BuildContractOutput, error){
   response, err := Post("http://"+url+"/participate", &input)
   if err != nil {
-    return nil, errors.New(fmt.Sprintf("failed to push transaction: %v",err))
+    return nil, errors.New(fmt.Sprintf("failed to participate: %v",err))
   }
   var out *BuildContractOutput
   err = ParseBodyResponse(response,&out)
@@ -37,7 +37,7 @@ func Participate(url string, input BuildContractInput)(*BuildContractOutput, err
 func Redeem(url string, input SpendContractInput)(*SpendContractOutput, error){
   response, err := Post("http://"+url+"/redeem", &input)
   if err != nil {
-    return nil, errors.New(fmt.Sprintf("failed to push transaction: %v",err))
+    return nil, errors.New(fmt.Sprintf("failed to redeem: %v",err))
   }
   var out *SpendContractOutput
   err = ParseBodyResponse(response,&out)
@@ -47,7 +47,7 @@ func Redeem(url string, input SpendContractInput)(*SpendContractOutput, error){
 func Refund(url string, input SpendContractInput)(*SpendContractOutput, error){
   response, err := Post("http://"+url+"/refund", &input)
   if err != nil {
-    return nil, errors.New(fmt.Sprintf("failed to push transaction: %v",err))
+    return nil, errors.New(fmt.Sprintf("failed to refund: %v",err))
   }
   var out *SpendContractOutput
   err = ParseBodyResponse(response,&out)
@@ -57,7 +57,7 @@ func Refund(url string, input SpendContractInput)(*SpendContractOutput, error){
 func WalletBalance(url string)(*WalletBalanceOutput, error){
   response, err := http.Get("http://"+url+"/walletBalance")
   if err != nil {
-    return nil, errors.New(fmt.Sprintf("failed to push transaction: %v",err))
+    return nil, errors.New(fmt.Sprintf("failed to get wallet balance: %v",err))
   }
   var out *WalletBalanceOutput
   err = ParseBodyResponse(response,&out)
@@ -67,7 +67,7 @@ func WalletBalance(url string)(*WalletBalanceOutput, error){
 func IsOnline(url string)(*IsOnlineOutput, error){
   response, err := http.Get("http://"+url+"/is-online")
   if err != nil {
-    return nil, errors.New(fmt.Sprintf("failed to push transaction: %v",err))
+    return nil, errors.New(fmt.Sprintf("IsNotOnline%v",err))
   }
   var out *IsOnlineOutput
   err = ParseBodyResponse(response,&out)
@@ -77,7 +77,7 @@ func IsOnline(url string)(*IsOnlineOutput, error){
 func SearchRedeem(url string, input CheckRedeemInput)(*CheckRedeemOutput, error){
   response, err := Post("http://"+url+"/searchredeem", &input)
   if err != nil {
-    return nil, errors.New(fmt.Sprintf("failed to push transaction: %v",err))
+    return nil, errors.New(fmt.Sprintf("searchRedeem: %v\n %v",err,input))
   }
   var out *CheckRedeemOutput
   err = ParseBodyResponse(response,&out)
@@ -97,7 +97,7 @@ func AuditContract(url string, input AuditContractInput)(*AuditContractOutput, e
 func SwapParams(url string, getaddress bool)(*AtomicSwapParamsOutput, error){
   response, err := Post("http://"+url+"/newswap", &getaddress)
   if err != nil {
-    return nil, errors.New(fmt.Sprintf("failed to push transaction: %v",err))
+    return nil, errors.New(fmt.Sprintf("%v\n%v",err,getaddress))
   }
   var out *AtomicSwapParamsOutput
   err = ParseBodyResponse(response,&out)

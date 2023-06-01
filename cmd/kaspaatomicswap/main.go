@@ -5,7 +5,7 @@ import (
   "crypto/rand"
   "crypto/sha256"
   "encoding/hex"
-  "flag"
+  //"flag"
   "fmt"
   "os"
   "strconv"
@@ -41,6 +41,7 @@ import (
   "github.com/kaspanet/kaspad/infrastructure/network/rpcclient"
   "github.com/kaspanet/kaspad/app/appmessage"
   "github.com/pieroforfora/atomicswapper/interfaces"
+  "github.com/pieroforfora/atomicswapper/lib/tagconfig"
 
 
 )
@@ -51,38 +52,28 @@ const verify = true
 const txVersion = 2
 
 var chainParams = &dagconfig.MainnetParams
-var (
-  flagset     = flag.NewFlagSet("", flag.ExitOnError)
-    connectWalletFlag = flagset.String("kaspawallet", "localhost:8082", "host[:port] of kaspawallet  RPC server")
-    connectKaspadFlag = flagset.String("kaspad", "localhost:16610", "host[:port] of kaspad RPC server")
+type Config struct {
+  KaspaWalletUrl  string `env:"KAS_SWAP_WALLET"                cli:"kaspa-wallet"     yaml:"kaspa_wallet"       default:"localhost:8082" help:"host:port of kaspawallet  RPC server"`
+  KaspadUrl       string  `env:"KAS_SWAP_NODE_URL"             cli:"kaspad"           yaml:"kaspad"             default:"" help:"host:port of kaspad RPC server"`
+  KaspaWalletPass string  `env:"KAS_SWAP_WALLET_PASS"          cli:"wallet-password"      yaml:"wallet_password"    default:""`
+  Network         string  `env:"KAS_SWAP_NETWORK"              cli:"net"              yaml:"network"            default:"regtest"`
+  LtInit          int64   `env:"KAS_SWAP_LOCKTIME_INITIATE"    cli:"lt-init"    yaml:"ltime_init"      default:"48" help:"locktime initiate method"`
+  LtPart          int64   `env:"KAS_SWAP_LOCKTIME_PARTICIPATE" cli:"lt-part"    yaml:"ltime_part"      default:"24" help:"locktime participate method"`
+  SecretSize      int64   `env:"KAS_SWAP_SECRET_SIZE"          cli:"secret-size"      yaml:"secret_size"        default:"32"`
+  Listen          string  `env:"KAS_SWAP_LISTEN"               cli:"listen"           yaml:"listen"             default:"localhost:8080"`
+  GapLimit        string  `env:"KAS_SWAP_GAP_LIMIT"            cli:"gap"              yaml:"gap"                default:"20"`
+  Verbose         bool    `env:"KAS_SWAP_VERBOSE"              cli:"verbose"          yaml:"verbose"            default:"false"`
+  FeePerInput     uint64  `env:"KAS_SWAP_FEE_PER_INPUT"        cli:"fee-per-input"    yaml:"fee_per_input"      default:"3000"`
+}
+var cfg= Config{}
 
-    ltInitiate = flagset.Int("ltInitiate", 48, "min initiate locktime in hours ")
-    ltParticipate = flagset.Int("ltParticipate", 24, "min participate locktime in hours")
-    sS = flagset.Int64("secretSize", 32, "min participate locktime in hours")
+var defaultAppDir = util.AppDir("kaspawallet", false)
 
-    testnetFlag = flagset.Bool("testnet", false, "use testnet network")
-    devnetFlag = flagset.Bool("regtest", false, "use devnet network")
-    verboseFlag = flagset.Bool("verbose", false, "verbose")
-    listenFlag = flagset.String("listen", "8081", "daemon listen port")
-    daemonPasswordFlag = flagset.String("rpcpass", "", "wallet password")
-  )
+func defaultKeysFile(netParams *dagconfig.Params) string {
+  return filepath.Join(defaultAppDir, netParams.Name, "keys.json")
+}
+var daemonPassword string
 
-
-  var (
-    defaultAppDir = util.AppDir("kaspawallet", false)
-  )
-  func defaultKeysFile(netParams *dagconfig.Params) string {
-    return filepath.Join(defaultAppDir, netParams.Name, "keys.json")
-  }
-
-
-  var feePerInput = uint64(30000)
-  var secretSize = *sS
-
-  
-
-  var amountInSompi = uint64(1000000)
-  var daemonPassword string
   //kaspad --devnet --utxoindex --archival --nodnsseed  --listen 127.0.0.1:16111 --externalip=127.0.0.1 --allow-submit-block-when-not-synced  --loglevel=trace
 
   // There are two directions that the atomic swap can be performed, as the
@@ -106,7 +97,7 @@ var (
   //   cp1 redeems kas revealing S
   //     - must verify H(S) in contract is hash of known secret
   //   cp2 redeems btc with S
-
+/*
 func init() {
   flagset.Usage = func() {
     fmt.Println("Usage: kaspaatomicswap [flags] cmd [cmd args]")
@@ -126,7 +117,7 @@ func init() {
     flagset.PrintDefaults()
   }
 }
-
+*/
 type command interface {
   runCommand([]string, pb.KaspawalletdClient, context.Context, *keys.File) error
 }
@@ -153,6 +144,7 @@ type contractArgsCmd struct {
   locktime   uint64
   secretHash []byte
   secret     []byte
+  secretSize int64
 }
 type walletBalanceCmd struct {}
 type atomicSwapParamsCmd struct {}
@@ -180,9 +172,9 @@ func main() {
   if err != nil {
     fmt.Fprintln(os.Stderr, err)
   }
-  if showUsage {
+  /*if showUsage {
     flagset.Usage()
-  }
+  }*/
   if err != nil || showUsage {
     os.Exit(1)
   }
@@ -200,11 +192,13 @@ func checkCmdArgLength(args []string, required int) (nArgs int) {
 }
 
 func run() (err error, showUsage bool) {
-  flagset.Parse(os.Args[1:])
-  args := flagset.Args()
+  ctx := context.Background()
+  args,err := tagconfig.Parse(&cfg,ctx)
+  fmt.Println(cfg.KaspaWalletPass)
   if len(args) == 0 {
     return nil, true
   }
+  /*
   cmdArgs := 0
   switch args[0] {
   case "initiate":
@@ -236,16 +230,20 @@ func run() (err error, showUsage bool) {
   if flagset.NArg() != 0 {
     return fmt.Errorf("unexpected argument: %s", flagset.Arg(0)), true
   }
+  */
 
-  if *testnetFlag {
-    chainParams = &dagconfig.TestnetParams
+  switch cfg.Network {
+    case "testnet":
+      chainParams = &dagconfig.TestnetParams
+    case "devnet":
+      chainParams = &dagconfig.DevnetParams
+    default:
+      chainParams = &dagconfig.MainnetParams
   }
-  if *devnetFlag {
-    chainParams = &dagconfig.DevnetParams
-  }
-  if !isFlagPassed("kaspad"){
+
+  if cfg.KaspadUrl==""{
     tmp := "localhost:"+string(chainParams.RPCPort)
-    connectKaspadFlag = &tmp
+    cfg.KaspadUrl = tmp
   }
 
 
@@ -321,8 +319,8 @@ func run() (err error, showUsage bool) {
   case "daemon":
     restApiRequestsHandlers()
     daemonPassword = getPassword()
-    fmt.Println("Server is up and running...",*listenFlag)
-    log.Fatal(http.ListenAndServe(":"+*listenFlag, nil))
+    fmt.Println("Server is up and running...",cfg.Listen)
+    log.Fatal(http.ListenAndServe(cfg.Listen, nil))
     return nil,false
 
   case "pushtx":
@@ -332,9 +330,7 @@ func run() (err error, showUsage bool) {
     }
     fmt.Println(*id)
     return nil,false
-
-
-}
+  }
   if err!= nil{
     log.Fatal(err)
   }
@@ -344,31 +340,28 @@ func run() (err error, showUsage bool) {
       return cmd.runOfflineCommand(), false
     }
   }
-  daemonClient, tearDown, err := client.Connect(*connectWalletFlag)
+  daemonClient, tearDown, err := client.Connect(cfg.KaspaWalletUrl)
   if err != nil {
     log.Fatal(err)
   }
   defer tearDown()
-  ctx, cancel := context.WithTimeout(context.Background(), (10 * time.Minute))
-  defer cancel()
-
   keysFile, _ := keys.ReadKeysFile(chainParams, defaultKeysFile(chainParams))
 
   password := getPassword()
   mnemonics, _ := keysFile.DecryptMnemonics(password)
-
   err = cmd.runCommand(mnemonics,daemonClient,ctx,keysFile)
+
   return err, false
 }
 
 func getPassword() string{
-  if isFlagPassed("rpcpass"){
-    return *daemonPasswordFlag
+  if cfg.KaspaWalletPass != ""{
+    return cfg.KaspaWalletPass
   }else{
-    fmt.Println("rpcpass false")
     return keys.GetPassword("Password:")
   }
 }
+/*
 func isFlagPassed(name string) bool {
   out:=false
   flagset.Visit(func(f *flag.Flag) {
@@ -378,6 +371,7 @@ func isFlagPassed(name string) bool {
   })
   return out
 }
+*/
 func getTxFee(tx *externalapi.DomainTransaction) uint64{
   allInputSompi := uint64(0)
   allOutputSompi := uint64(0)
@@ -538,7 +532,6 @@ func getAddressPath(addresses []string, address string, extendedPublicKeys []str
   }
   return nil
 }
-
 func getAddresses(daemonClient pb.KaspawalletdClient, ctx context.Context) []string {
   addressesResponse, err := daemonClient.ShowAddresses(ctx, &pb.ShowAddressesRequest{})
   if err != nil {
@@ -586,7 +579,7 @@ func getAddressPushes(name string, addresses []string ,blake []byte,keysFile *ke
   if keysFile != nil{
     addr, path = searchAddressByBlake2b(addresses,blake,keysFile.ExtendedPublicKeys, keysFile.ECDSA)
   }
-  if *verboseFlag {
+  if cfg.Verbose {
     fmt.Println("Pushes -", name,"from Contract:")
     if addr!=nil {
        fmt.Println(*addr)
@@ -620,7 +613,7 @@ func parsePushes(contractr []byte,addresses []string, keysFile *keys.File)(*pars
     refundAddr, refund_path = getAddressPushes("Refund", addresses, pushes.RefundBlake2b[:], keysFile)
   }
 
-  if *verboseFlag{
+  if cfg.Verbose{
     fmt.Println("Pushes - Secret hash from Contract:")
     fmt.Println(hex.EncodeToString(pushes.SecretHash[:]))
     fmt.Println("")
@@ -650,10 +643,10 @@ func parsePushes(contractr []byte,addresses []string, keysFile *keys.File)(*pars
 // btcd/rpcclient package.
 func sendRawTransaction(tx externalapi.DomainTransaction) (*string, error) {
   rpcTransaction := appmessage.DomainTransactionToRPCTransaction(&tx)
-  kaspadClient, err := rpcclient.NewRPCClient(*connectKaspadFlag)
+  kaspadClient, err := rpcclient.NewRPCClient(cfg.KaspadUrl)
 
   if err != nil {
-    fmt.Println("impossible to connect to kaspad ",*connectKaspadFlag,err)
+    fmt.Println("impossible to connect to kaspad ",cfg.KaspadUrl,err)
     return nil,err
   }
   txID,err :=sendTransaction(kaspadClient, rpcTransaction)
@@ -761,7 +754,7 @@ lockTime          uint64
 }
 
 func getContractIn(amount uint64, daemonClient pb.KaspawalletdClient, ctx context.Context, keysFile *keys.File) ([]*externalapi.DomainTransactionInput,uint64,[]string) {
-  kaspadClient, _ := rpcclient.NewRPCClient(*connectKaspadFlag)
+  kaspadClient, _ := rpcclient.NewRPCClient(cfg.KaspadUrl)
   addressesResponse, _ := daemonClient.ShowAddresses(ctx, &pb.ShowAddressesRequest{})
 
   getUTXOsByAddressesResponse,_  := kaspadClient.GetUTXOsByAddresses(addressesResponse.Address)
@@ -835,7 +828,7 @@ func buildContract(daemonClient pb.KaspawalletdClient, ctx context.Context, mnem
   refundAddrH := getBlake2b(refundAddr.ScriptAddress())
   themAddrH := getBlake2b(args.them.ScriptAddress())
   contract, err := atomicSwapContract(refundAddrH, themAddrH,
-    args.locktime, args.secretHash)
+    args.locktime, args.secretHash, args.secretSize)
   if err != nil {
     return nil, err
   }
@@ -937,7 +930,7 @@ func getSerializedPublicKey(derivedKey *bip32.ExtendedKey, keysFile *keys.File)(
 }
 
 func getFee(inputs []*externalapi.DomainTransactionInput) uint64{
-  return uint64(feePerInput)*uint64(len(inputs)+1)
+  return uint64(cfg.FeePerInput)*uint64(len(inputs)+1)
 }
 
 func getContractOut(contractr []byte, tx *externalapi.DomainTransaction) *int {
@@ -1031,10 +1024,10 @@ func sha256Hash(x []byte) []byte {
 }
 func getSecret(size *int64)([]byte,[]byte, error){
   if size == nil {
-    size = &secretSize
+    size = &cfg.SecretSize
   }
   //var secret [int(secretSize)]byte
-  var secret =make([]byte,secretSize)
+  var secret =make([]byte,*size)
   _, err := rand.Read(secret[:])
   if err != nil {
     return nil,nil,err
@@ -1071,7 +1064,7 @@ func (cmd *contractArgsCmd) runDaemonCommand(mnemonics []string, daemonClient pb
 }
 
 func printTransaction(tx *externalapi.DomainTransaction, name string){
-  if *verboseFlag {
+  if cfg.Verbose{
     printDomainTransaction(tx)
   }
   fmt.Printf("%v transaction (%v):\n", name, consensushashing.TransactionID(tx))
@@ -1218,14 +1211,14 @@ func (cmd atomicSwapParamsCmd) runDaemonCommand(mnemonics []string, daemonClient
   changeAddrs:= getRawChangeAddress(daemonClient,ctx)
   return any(interfaces.AtomicSwapParamsOutput{
     ReciptAddress:          changeAddrs.String(),
-    MaxSecretLen:           strconv.FormatInt(secretSize,10),
-    MinLockTimeInitiate:    strconv.Itoa(*ltInitiate),
-    MinLockTimeParticipate: string(*ltInitiate),
+    MaxSecretLen:           strconv.FormatInt(cfg.SecretSize,10),
+    MinLockTimeInitiate:    strconv.FormatInt(cfg.LtInit,10),
+    MinLockTimeParticipate: strconv.FormatInt(cfg.LtPart,10),
   }),nil
 }
 
 func (cmd checkRedeemCmd) runDaemonCommand(mnemonics []string, daemonClient pb.KaspawalletdClient, ctx context.Context, keysFile *keys.File) (any,error) {
-  kaspadClient, _ := rpcclient.NewRPCClient(*connectKaspadFlag)
+  kaspadClient, _ := rpcclient.NewRPCClient(cfg.KaspadUrl)
   getBlocksR,_  := kaspadClient.GetBlocks(cmd.LastBlock,true,true)
   secretHash,err := hex.DecodeString(cmd.SecretHash)
   if err != nil {return nil,err}
@@ -1294,7 +1287,7 @@ func auditContract(daemonClient pb.KaspawalletdClient, ctx context.Context, keys
   var daaScore uint64
   var vspbs uint64
   var nUtxo int
-  kaspadClient, _ := rpcclient.NewRPCClient(*connectKaspadFlag)
+  kaspadClient, _ := rpcclient.NewRPCClient(cfg.KaspadUrl)
   if kaspadClient != nil {
     getUTXOsByAddressesResponse,_  := kaspadClient.GetUTXOsByAddresses([]string{contractP2SH.EncodeAddress()})
     dagInfo, _ := kaspadClient.GetBlockDAGInfo()
@@ -1331,7 +1324,7 @@ func auditContract(daemonClient pb.KaspawalletdClient, ctx context.Context, keys
 }
 
 func  printAuditResult(audited auditedContract) error{
-  if audited.secretSize != secretSize {
+  if audited.secretSize != cfg.SecretSize {
     return fmt.Errorf("contract specifies strange secret size %v", audited.secretSize)
   }
 
@@ -1378,7 +1371,7 @@ func  printAuditResult(audited auditedContract) error{
 // party and requires the initiator's secret.  The second signature script is
 // the refund path performed by us, but the refund can only be performed after
 // locktime.
-func atomicSwapContract(pkhMe, pkhThem []byte, locktime uint64, secretHash []byte) ([]byte, error) {
+func atomicSwapContract(pkhMe, pkhThem []byte, locktime uint64, secretHash []byte, secretSize int64) ([]byte, error) {
   fmt.Println("LOCKTIME:",locktime)
   b := txscript.NewScriptBuilder()
   b.AddOp(txscript.OpIf) // Normal redeem path
@@ -1524,15 +1517,16 @@ func parseBuildArgs(args interfaces.BuildContractInput)(*contractArgsCmd,error){
   var secret []byte
   var secretHash []byte
   var lockTime uint64
+  slen:= int64(0)
   if args.SecretHash == nil || *args.SecretHash == ""{
 //////////////
-    slen, err := strconv.ParseInt(*args.SecretLen,10,64)
+    slen, err = strconv.ParseInt(*args.SecretLen,10,64)
     if err != nil{
       return nil,err
     }
     secret,secretHash,_ = getSecret(&slen)
     if args.LockTime == nil{
-      lockTime = uint64(time.Now().Add(time.Duration(*ltInitiate) * time.Hour).Unix())
+      lockTime = uint64(time.Now().Add(time.Duration(cfg.LtInit) * time.Hour).Unix())
     }else{
       lockTime,err = strconv.ParseUint(*args.LockTime,10,64)
       if err != nil{
@@ -1545,13 +1539,14 @@ func parseBuildArgs(args interfaces.BuildContractInput)(*contractArgsCmd,error){
     if err != nil{
       return nil, err
     }
-    lockTime = uint64(time.Now().Add(time.Duration(*ltParticipate) * time.Hour).Unix()*1000)
+    lockTime = uint64(time.Now().Add(time.Duration(cfg.LtPart) * time.Hour).Unix()*1000)
   }
   return &contractArgsCmd{
     them:       cp2AddrP2PKH,
     amount:     *amount,
     secretHash: secretHash,
     secret:     secret,
+    secretSize: slen,
     locktime:   lockTime,
   },nil
 }
@@ -1666,7 +1661,7 @@ func mainEndPoint(cmd daemonCommand,err error, w http.ResponseWriter, r *http.Re
     interfaces.WriteResult(w,err,nil)
     return
   }
-  daemonClient, tearDown, err := client.Connect(*connectWalletFlag)
+  daemonClient, tearDown, err := client.Connect(cfg.KaspaWalletUrl)
   if err!=nil {
     fmt.Println(err)
     interfaces.WriteResult(w,errors.New("error"),nil)

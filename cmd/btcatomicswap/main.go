@@ -12,7 +12,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"flag"
+//	"flag"
 	"fmt"
 	"net"
 	"os"
@@ -33,7 +33,10 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/wallet/txrules"
   "github.com/pieroforfora/atomicswapper/interfaces"
-
+  "github.com/pieroforfora/atomicswapper/lib/tagconfig"
+  "context"
+  //  "github.com/sethvargo/go-envconfig"
+  //"gopkg.in/yaml.v3"
 )
 
 const verify = true
@@ -44,22 +47,21 @@ const txVersion = 2
 var (
 	chainParams = &chaincfg.MainNetParams
 )
+type Config struct {
+  BtcNode       string             `env:"BTC_SWAP_NODE_URL"              cli:"btc-node"        yaml:"btc_node_url"   default:"localhost:8080"`
+  BtcRpcUser    string             `env:"BTC_SWAP_NODE_RPC_USER"         cli:"btc-rpc-user"    yaml:"btc_rpc_user"   default:""              `
+  BtcRpcPass    string             `env:"BTC_SWAP_NODE_RPC_PASS"         cli:"btc-rpc-pass"    yaml:"btc_rpc_pass"   default:""`
+  BtcWallet     string             `env:"BTC_SWAP_WALLET"                cli:"btc-wallet"      yaml:"btc_wallet"     default:"atomicswap"`
+  Network       string             `env:"BTC_SWAP_NETWORK"               cli:"net"             yaml:"network"        default:"regtest"`
+  LtInit        int64              `env:"BTC_SWAP_LOCKTIME_INITIATE"     cli:"locktime-init"   yaml:"locktime_init"  default:"48"`
+  LtPart        int64              `env:"BTC_SWAP_LOCKTIME_PARTICIPATE"  cli:"locktime-part"   yaml:"locktime_part"  default:"24"`
+  SecretSize    int64              `env:"BTC_SWAP_SECRET_SIZE"           cli:"secret-size"     yaml:"secret_size"    default:"32"`
+  Listen        string             `env:"BTC_SWAP_LISTEN"                cli:"listen"          yaml:"listen"         default:"8080"`
+  Bind          string             `env:"BTC_SWAP_BIND_ADDRESS"          cli:"bind"            yaml:"bind"           default:"localhost"`
+}
 
-var (
-	flagset     = flag.NewFlagSet("", flag.ExitOnError)
-	connectFlag = flagset.String("s", "localhost", "host[:port] of Bitcoin Core wallet RPC server")
-	rpcuserFlag = flagset.String("rpcuser", "", "username for wallet RPC authentication")
-	rpcpassFlag = flagset.String("rpcpass", "", "password for wallet RPC authentication")
-	testnetFlag = flagset.Bool("testnet", false, "use testnet network")
-	regTestFlag = flagset.Bool("regtest", false, "use regtest network")
-  ltInitiate = flagset.Int("ltInitiate", 48, "min initiate locktime in hours ")
-  ltParticipate = flagset.Int("ltParticipate", 24, "min participate locktime in hours")
-  sS = flagset.Int64("secretSize", 32, "min participate locktime in hours")
-  listenFlag= flagset.String("listen", "8080", "listendaemon port")
 
-)
 
-var secretSize = *sS
 // There are two directions that the atomic swap can be performed, as the
 // initiator can be on either chain.  This tool only deals with creating the
 // Bitcoin transactions for these swaps.  A second tool should be used for the
@@ -83,7 +85,7 @@ var secretSize = *sS
 //   cp2 redeems btc with S
 
 func init() {
-	flagset.Usage = func() {
+	/*flagset.Usage = func() {
 		fmt.Println("Usage: btcatomicswap [flags] cmd [cmd args]")
 		fmt.Println()
 		fmt.Println("Commands:")
@@ -98,6 +100,7 @@ func init() {
 		fmt.Println("Flags:")
 		flagset.PrintDefaults()
 	}
+*/
 }
 
 type command interface {
@@ -166,16 +169,15 @@ type spendArgsCmd struct {
 
 }
 
-
-
 func main() {
 	err, showUsage := run()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 	}
-	if showUsage {
+/*	if showUsage {
 		flagset.Usage()
 	}
+*/
 	if err != nil || showUsage {
 		os.Exit(1)
 	}
@@ -197,9 +199,21 @@ func deferrer(client *rpc.Client){
     client.Shutdown()
     client.WaitForShutdown()
 }
+var cfg= Config{}
 func run() (err error, showUsage bool) {
-	flagset.Parse(os.Args[1:])
-	args := flagset.Args()
+
+  ctx := context.Background()
+/*
+  f, _ := os.Open("config.yml")
+  defer f.Close()
+  decoder := yaml.NewDecoder(f)
+  decoder.Decode(&cfg)
+
+  err=envconfig.Process(ctx, &cfg)
+  fmt.Println(cfg.Listen,err)
+*/
+	args,err := tagconfig.Parse(&cfg,ctx)
+
 	if len(args) == 0 {
 		return nil, true
 	}
@@ -223,21 +237,24 @@ func run() (err error, showUsage bool) {
 		return fmt.Errorf("unknown command %v", args[0]), true
 	}
 	nArgs := checkCmdArgLength(args[1:], cmdArgs)
-	flagset.Parse(args[1+nArgs:])
+	//\:flagset.Parse(args[1+nArgs:])
 	if nArgs < cmdArgs {
 		return fmt.Errorf("%s: too few arguments", args[0]), true
 	}
+  /*
 	if flagset.NArg() != 0 {
 		return fmt.Errorf("unexpected argument: %s", flagset.Arg(0)), true
 	}
+  */
+  switch strings.ToLower(cfg.Network){
+    case "testnet":
+      chainParams = &chaincfg.TestNet3Params
+    case "regtest":
+		  chainParams = &chaincfg.RegressionNetParams
+    default:
+      chainParams = &chaincfg.MainNetParams
+  }
 
-	if *testnetFlag {
-		chainParams = &chaincfg.TestNet3Params
-	}
-
-	if *regTestFlag {
-		chainParams = &chaincfg.RegressionNetParams
-	}
 	var cmd command
 	switch args[0] {
 	case "initiate":
@@ -298,8 +315,8 @@ func run() (err error, showUsage bool) {
 
   case "daemon":
     restApiRequestsHandlers()
-    fmt.Println("Server is up and running...",*listenFlag)
-    log.Fatal(http.ListenAndServe(":"+*listenFlag, nil))
+    fmt.Println("Server is up and running...",cfg.Listen)
+    log.Fatal(http.ListenAndServe(":"+cfg.Listen, nil))
     return nil,false
 
 	}
@@ -308,7 +325,7 @@ func run() (err error, showUsage bool) {
 	if cmd, ok := cmd.(offlineCommand); ok {
 		return cmd.runOfflineCommand(), false
 	}
-  connConfig := getClientConfig()
+  connConfig := getClientConfig(cfg)
   client, err := rpc.New(&connConfig, nil)
   if err != nil {
     fmt.Errorf("rpc connect: %v", err)
@@ -325,11 +342,12 @@ func run() (err error, showUsage bool) {
 	err = cmd.runCommand(client)
 	return err, false
 }
-func getClientConfig() (rpc.ConnConfig){
+func getClientConfig(cfg Config) (rpc.ConnConfig){
+  btcNode := cfg.BtcNode+"/wallet/"+cfg.BtcWallet
   return rpc.ConnConfig{
-    Host:         "localhost:18443",
-    User:         "pieroforfora",
-    Pass:         "1234",
+    Host:         btcNode ,
+    User:         cfg.BtcRpcUser,
+    Pass:         cfg.BtcRpcPass,
     DisableTLS:   true,
     HTTPPostMode: true,
   }
@@ -421,7 +439,7 @@ func msgTxFromString(strtx *string)(*wire.MsgTx,error){
 
 func getSecret(size *int64)([]byte,[]byte, error){
   if size == nil {
-    size = &secretSize
+    size = &cfg.SecretSize
   }
   //var secret [int(secretSize)]byte
   var secret =make([]byte,*size)
@@ -450,14 +468,14 @@ func parseBuildArgs(args interfaces.BuildContractInput) (*contractArgsCmd,error)
   var slen    int64
   if args.SecretHash == nil || *args.SecretHash == ""{
     if args.SecretLen == nil || *args.SecretLen ==""{
-      slen = secretSize
+      slen = cfg.SecretSize
     }else{
       slen, err = strconv.ParseInt(*args.SecretLen,10,64)
       if err != nil{ return nil,err }
     }
     secret,secretHash,_ = getSecret(&slen)
     if args.LockTime == nil{
-      lockTime = int64(time.Now().Add(time.Duration(*ltInitiate) * time.Hour).Unix())
+      lockTime = int64(time.Now().Add(time.Duration(cfg.LtInit) * time.Hour).Unix())
     }else{
       lockTime,err = strconv.ParseInt(*args.LockTime,10,64)
       if err != nil{
@@ -470,7 +488,7 @@ func parseBuildArgs(args interfaces.BuildContractInput) (*contractArgsCmd,error)
     if err != nil{
       return nil, err
     }
-    lockTime = int64(time.Now().Add(time.Duration(*ltParticipate) * time.Hour).Unix())
+    lockTime = int64(time.Now().Add(time.Duration(cfg.LtPart) * time.Hour).Unix())
   }
   return &contractArgsCmd{
     them:       cp2AddrP2PKH,
@@ -1089,7 +1107,7 @@ func auditContract(cmd auditContractCmd)(*auditedContract,error){
   if pushes == nil {
     return nil,errors.New("contract is not an atomic swap script recognized by this tool")
   }
-  if pushes.SecretSize != secretSize {
+  if pushes.SecretSize != cfg.SecretSize {
     return nil,fmt.Errorf("contract specifies strange secret size %v", pushes.SecretSize)
   }
 
@@ -1256,9 +1274,9 @@ func (cmd *atomicSwapParamsCmd) runDaemonCommand(c *rpc.Client) (any,error) {
   }
   return any(interfaces.AtomicSwapParamsOutput{
     ReciptAddress:          refundAddr.String(),
-    MaxSecretLen:           strconv.FormatInt(secretSize,10),
-    MinLockTimeInitiate:    string(*ltInitiate),
-    MinLockTimeParticipate: string(*ltInitiate),
+    MaxSecretLen:           strconv.FormatInt(cfg.SecretSize,10),
+    MinLockTimeInitiate:    strconv.FormatInt(cfg.LtInit,10),
+    MinLockTimeParticipate: strconv.FormatInt(cfg.LtPart,10),
   }),err
 }
 
@@ -1414,7 +1432,7 @@ func (cmd *auditContractCmd) runOfflineCommand() error {
 	if pushes == nil {
 		return errors.New("contract is not an atomic swap script recognized by this tool")
 	}
-	if pushes.SecretSize != secretSize {
+	if pushes.SecretSize != cfg.SecretSize {
 		return fmt.Errorf("contract specifies strange secret size %v", pushes.SecretSize)
 	}
 
@@ -1476,7 +1494,7 @@ func atomicSwapContract(pkhMe, pkhThem *[ripemd160.Size]byte, locktime int64, se
     // party can audit.  This is used to prevent fraud attacks between two
     // currencies that have different maximum data sizes.
     b.AddOp(txscript.OP_SIZE)
-    b.AddInt64(secretSize)
+    b.AddInt64(cfg.SecretSize)
     b.AddOp(txscript.OP_EQUALVERIFY)
 
     // Require initiator's secret to be known to redeem the output.
@@ -1571,7 +1589,7 @@ func isOnline() bool {
   return true
 }
 func mainEndpoint(cmd daemonCommand,err error, w http.ResponseWriter, r *http.Request){
-  connConfig := getClientConfig()
+  connConfig := getClientConfig(cfg)
   client, err := rpc.New(&connConfig, nil)
   if err != nil {
     fmt.Errorf("rpc connect: %v", err)

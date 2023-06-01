@@ -5,7 +5,10 @@ type InitiateSwapIn struct {
   Amount string `json:"Amount"`
   Address string `json:"Address"`
 }
-
+type SwapIn struct {
+  InitiateSwapIn,
+  SwapperUrl string `json:"SwapperAddress"`
+}
 type InitiateSwapOut struct {
   SwapId              string  `json:"SwapId"`
   SwapperAddress      string  `json:"SwapperAddress"`
@@ -59,6 +62,8 @@ type SwapStatusOut struct{
   TxRedeemSwapper         string    `json:"tx_redeem_swapper"`
   TxRefundUser            string    `json:"tx_refund_user"`
   TxRefundSwapper         string    `json:"tx_refund_swapper"`
+  MyRole                  string    `json:"my_role"`
+  RemoteUrl               string    `json:"remote_url"`
 
 }
 

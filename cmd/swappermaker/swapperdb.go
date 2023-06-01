@@ -6,6 +6,8 @@ type Swap struct {
   Id                      string    `db:"id,key"`
   Date                    int64     `db:"date"`
   StatusCode              string    `db:"status_code"`
+  MyRole                  string    `db:"my_role"`
+  RemoteUrl               string    `db:"remote_url"`
   CurrencyToUser          string    `db:"currency_user"`
   CurrencyToSwapper       string    `db:"currency_swapper"`
   AmountToSwapper         string    `db:"amount_swapper"`
@@ -36,6 +38,7 @@ type Swap struct {
   TxRedeemSwapper         string    `db:"tx_redeem_swapper"`
   TxRefundUser            string    `db:"tx_refund_user"`
   TxRefundSwapper         string    `db:"tx_refund_swapper"`
+  SwapperUrl              string    `db:"swapper_url"`
 }
 
 func (*Swap) TableName()string{
@@ -43,10 +46,13 @@ func (*Swap) TableName()string{
 }
 
 func (*Swap) CreateTableSQL() string{
+  //my_role can be swp or usr
   return `CREATE TABLE tbl_swap(
     id                    CHAR(65) PRIMARY KEY,
     date                  INTEGER,
     status_code           INTEGER,
+    my_role               CHAR(3),
+    remote_url            TEXT,
     currency_user         CHAR(5),
     currency_swapper      CHAR(5),
     amount_swapper        TEXT,
@@ -76,7 +82,8 @@ func (*Swap) CreateTableSQL() string{
     tx_redeem_user        TEXT,
     tx_redeem_swapper     TEXT,
     tx_refund_user        TEXT,
-    tx_refund_swapper     TEXT
+    tx_refund_swapper     TEXT,
+    swapper_url           TEXT
   );
   `
 }

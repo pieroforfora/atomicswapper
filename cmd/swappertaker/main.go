@@ -9,7 +9,7 @@ import(
   "time"
 )
 func executeSwap(args interfaces.InitiateSwapIn)(*interfaces.InitiateSwapOut,*interfaces.BuildContractOutput,error){
-  response,err := interfaces.Post("http://localhost:7080/initiate",&args)
+  response,err := interfaces.Post("http://localhost:9220/initiate",&args)
   if err != nil{return nil,nil,err}
   fmt.Println(response)
 
@@ -45,14 +45,14 @@ func executeSwap(args interfaces.InitiateSwapIn)(*interfaces.InitiateSwapOut,*in
     Contract:     builtSwap.Contract,
     SecretHash:   builtSwap.SecretHash,
   }
-  response, err = interfaces.Post("http://localhost:7080/participate",&done)
+  response, err = interfaces.Post("http://localhost:9220/participate",&done)
   if err != nil{return nil,nil,err}
   return &initiateSwap,builtSwap,nil
 }
 func waitParticipateAndRedeem(initiateSwap interfaces.InitiateSwapOut, builtSwap interfaces.BuildContractOutput){
   fmt.Println("waiting for swapper to participate")
   for{
-    response, err := interfaces.Post("http://localhost:7080/check",&interfaces.SwapStatusIn{
+    response, err := interfaces.Post("http://localhost:9220/check",&interfaces.SwapStatusIn{
       SwapId: initiateSwap.SwapId,
     })
     fmt.Println(err)
